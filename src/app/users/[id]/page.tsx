@@ -322,7 +322,7 @@ export default function UserProfilePage({ params }: { params: { id: string } }) 
                     <CardContent className="space-y-3 p-2">
                          <div className="flex items-center gap-3">
                             <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">Total Referrals:</span>
+                            <span className="text-muted-foreground">Total Referral's Reward:</span>
                             <span className="font-bold">{totalReferrals}</span>
                         </div>
                         <div className="flex items-center gap-3">
