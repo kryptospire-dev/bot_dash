@@ -59,7 +59,7 @@
 //                 <div className="mx-auto bg-primary/10 text-primary rounded-lg p-3 w-fit mb-2">
 //                     <Network className="h-8 w-8" />
 //                 </div>
-//                 <h1 className="text-3xl font-bold">TeleView</h1>
+//                 <h1 className="text-3xl font-bold">MinatiVault</h1>
 //                 <p className="text-balance text-muted-foreground">
 //                     Enter your credentials to access the dashboard
 //                 </p>
@@ -228,7 +228,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-                TeleView
+                MinatiVault
               </h1>
               <p className="text-muted-foreground text-lg">
                 Enter your credentials to access the dashboard
@@ -342,7 +342,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground animate-fadeIn" style={{animationDelay: '0.4s'}}>
-            Secure access to your TeleView dashboard
+            Secure access to your MinatiVault dashboard
           </p>
         </div>
       </div>
@@ -358,7 +358,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-center">
               <Image
                 src="/black_minati.png"
-                alt="TeleView Logo"
+                alt="MinatiVault Logo"
                 width="120"
                 height="120"
                 className="object-contain transform transition-all duration-300 hover:scale-105"
@@ -369,7 +369,7 @@ export default function LoginPage() {
             {/* Brand Message */}
             <div className="space-y-2">
               <h2 className="text-3xl font-bold text-foreground/90">
-                Welcome to TeleView
+                Welcome to MinatiVault
               </h2>
               <p className="text-lg text-muted-foreground max-w-md mx-auto leading-relaxed">
                 Your comprehensive telecommunications management platform
@@ -380,7 +380,7 @@ export default function LoginPage() {
           {/* Feature Highlights */}
           <div className="space-y-4">
             <h3 className="text-xl font-semibold text-foreground/80">
-              What you can do with TeleView
+              What you can do with MinatiVault
             </h3>
             
             <div className="grid gap-3">
