@@ -138,7 +138,7 @@ export default function UserProfilePage({ params }: { params: { id: string } }) 
       });
       toast({
         title: "Success",
-        description: `Referral reward of ${newTotalRewards} MNTC has been sent.`,
+        description: `Referral reward has been sent.`,
       });
     } catch (error) {
       console.error("Error updating referral rewards:", error);
