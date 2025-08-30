@@ -10,7 +10,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'TeleView',
+  title: 'MinatiVault',
   description: 'Admin panel for your Telegram bot',
 };
 
