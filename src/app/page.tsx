@@ -64,7 +64,7 @@ export default function DashboardPage() {
           totalMntcPaid += rewardInfo.mntc_earned || 0;
         }
 
-        totalMntcPaid += referralStats.total_rewards || 0;
+        totalMntcPaid += (referralStats.total_rewards)*2 || 0;
 
         const totalReferrals = referralStats.total_referrals || 0;
         const totalRewards = referralStats.total_rewards || 0;
