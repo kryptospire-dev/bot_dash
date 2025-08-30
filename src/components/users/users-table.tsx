@@ -145,7 +145,7 @@ export default function UsersTable({ users, initialFilter }: UsersTableProps) {
                   <TableCell className="text-center">
                     <Badge variant={getStatusVariant(user.reward_info?.reward_status)} className="capitalize">{user.reward_info?.reward_status.replace('_', ' ')}</Badge>
                   </TableCell>
-                   <TableCell className="text-center font-medium">{(user.reward_info?.mntc_earned || 0) + (user.referral_stats?.total_rewards || 0)}</TableCell>
+                   <TableCell className="text-center font-medium">{(user.reward_info?.mntc_earned || 0) + ((user.referral_stats?.total_rewards ?? 0) * 2)}</TableCell>
                   <TableCell className="text-center">
                     <span className={cn(
                         "text-xs font-semibold capitalize px-2 py-1 rounded-full",
