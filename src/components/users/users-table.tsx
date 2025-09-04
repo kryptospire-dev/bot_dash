@@ -1,8 +1,7 @@
 
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -14,8 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import type { User } from "@/lib/types";
-import { Search, UserX, Loader2, Filter, ArrowUp, ArrowDown } from "lucide-react";
-import { Label } from "@/components/ui/label";
+import { Search, UserX, Filter, ArrowUp, ArrowDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -30,15 +28,13 @@ import {
   DialogClose
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import UserProfile from "./user-profile";
+import { ScrollArea } from "../ui/scroll-area";
 
 
 interface UsersTableProps {
     users: User[];
-    fetchUsers: () => void;
-    hasMore: boolean;
     loading: boolean;
-    loadingMore: boolean;
-    searchTerm: string;
     setSearchTerm: (term: string) => void;
     showOnlyWithAddress: boolean;
     setShowOnlyWithAddress: (value: boolean) => void;
@@ -49,15 +45,14 @@ interface UsersTableProps {
     sortBy: string;
     sortDirection: 'asc' | 'desc';
     handleSort: (column: string) => void;
+    fetchNextPage: () => void;
+    hasMore: boolean;
+    loadingMore: boolean;
 }
 
 export default function UsersTable({ 
     users, 
-    fetchUsers, 
-    hasMore, 
     loading,
-    loadingMore,
-    searchTerm,
     setSearchTerm,
     showOnlyWithAddress,
     setShowOnlyWithAddress,
@@ -68,24 +63,31 @@ export default function UsersTable({
     sortBy,
     sortDirection,
     handleSort,
+    fetchNextPage,
+    hasMore,
+    loadingMore,
 }: UsersTableProps) {
-  const router = useRouter();
-  const observer = useRef<IntersectionObserver>();
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [localSearchTerm, setLocalSearchTerm] = useState("");
   
   const [dialogAddressFilter, setDialogAddressFilter] = useState(showOnlyWithAddress);
   const [dialogReferralFilter, setDialogReferralFilter] = useState(showOnlyPendingReferral);
   const [dialogPendingStatusFilter, setDialogPendingStatusFilter] = useState(showOnlyPendingStatus);
 
-  const lastUserElementRef = useCallback((node: HTMLTableRowElement) => {
-    if (loadingMore) return;
+  const isSearching = !!localSearchTerm;
+
+  const observer = useRef<IntersectionObserver>();
+  const lastUserElementRef = useCallback(node => {
+    if (loading || loadingMore) return;
     if (observer.current) observer.current.disconnect();
     observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
-        fetchUsers();
+      if (entries[0].isIntersecting && hasMore && !localSearchTerm) {
+        fetchNextPage();
       }
     });
     if (node) observer.current.observe(node);
-  }, [loadingMore, hasMore, fetchUsers]);
+  }, [loading, loadingMore, hasMore, localSearchTerm, fetchNextPage]);
 
   const getStatusVariant = (status?: User["reward_info"]['reward_status']) => {
     switch (status) {
@@ -98,13 +100,25 @@ export default function UsersTable({
     }
   };
 
+  const handleRowClick = (user: User) => {
+    setSelectedUser(user);
+    setIsDialogOpen(true);
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      setSearchTerm(localSearchTerm);
+    }
+  };
+  
   const handleApplyFilters = () => {
     setShowOnlyWithAddress(dialogAddressFilter);
     setShowOnlyPendingReferral(dialogReferralFilter);
     setShowOnlyPendingStatus(dialogPendingStatusFilter);
   };
   
-  const clearFilters = () => {
+  const clearFiltersAndSearch = () => {
+    setLocalSearchTerm('');
     setSearchTerm('');
     setShowOnlyWithAddress(false);
     setShowOnlyPendingReferral(false);
@@ -118,11 +132,15 @@ export default function UsersTable({
 
   const SortableHeader = ({ column, label }: { column: string; label: string }) => {
     const isSorted = sortBy === column;
+    const isDisabled = !!localSearchTerm;
     return (
-        <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort(column)}>
+        <TableHead 
+          className={cn("cursor-pointer hover:bg-muted/50", isDisabled && "cursor-not-allowed opacity-50")}
+          onClick={() => !isDisabled && handleSort(column)}
+        >
             <div className="flex items-center gap-2">
                 {label}
-                {isSorted && (sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />)}
+                {!isDisabled && isSorted && (sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />)}
             </div>
         </TableHead>
     );
@@ -135,10 +153,11 @@ export default function UsersTable({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                 type="search"
-                placeholder="Search by name, username, ID, or address..."
+                placeholder="Search by name, username, or address and press Enter..."
                 className="w-full max-w-sm pl-10"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={localSearchTerm}
+                onChange={(e) => setLocalSearchTerm(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 />
             </div>
             
@@ -202,7 +221,7 @@ export default function UsersTable({
                   </div>
                 </div>
                 <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={clearFilters}>Clear Filters</Button>
+                    <Button type="button" variant="ghost" onClick={clearFiltersAndSearch}>Clear All</Button>
                     <DialogClose asChild>
                         <Button type="button" variant="secondary">Close</Button>
                     </DialogClose>
@@ -241,9 +260,9 @@ export default function UsersTable({
             ) : users.length > 0 ? (
               users.map((user, index) => (
                 <TableRow 
-                  ref={index === users.length - 1 ? lastUserElementRef : null}
                   key={user.id} 
-                  onClick={() => router.push(`/users/${user.id}`)} 
+                  ref={users.length === index + 1 ? lastUserElementRef : null}
+                  onClick={() => handleRowClick(user)}
                   className="cursor-pointer"
                 >
                   <TableCell>
@@ -276,8 +295,8 @@ export default function UsersTable({
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                       <UserX className="h-8 w-8" />
                       <p className="font-medium">No users found.</p>
-                      {areFiltersActive || searchTerm ? (
-                        <p className="text-sm">Try adjusting your search or filters. <button onClick={clearFilters} className="text-primary underline">Clear all filters</button>.</p>
+                      {areFiltersActive || localSearchTerm ? (
+                        <p className="text-sm">Try adjusting your search or filters. <button onClick={clearFiltersAndSearch} className="text-primary underline">Clear all</button>.</p>
                       ) : (
                         <p className="text-sm">There are no users to display.</p>
                       )}
@@ -286,26 +305,26 @@ export default function UsersTable({
                 </TableRow>
             )}
             {loadingMore && (
-                <TableRow>
-                    <TableCell colSpan={6} className="text-center">
-                        <div className="flex justify-center items-center py-4">
-                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                        </div>
-                    </TableCell>
-                </TableRow>
-            )}
-            {!hasMore && users.length > 0 && (
-                <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
-                        You've reached the end of the list.
-                    </TableCell>
-                </TableRow>
+              <TableRow>
+                <TableCell colSpan={6} className="text-center p-4">
+                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading more users...</span>
+                  </div>
+                </TableCell>
+              </TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="max-w-4xl w-full h-[90vh] p-0">
+            <ScrollArea className="h-full">
+              {selectedUser && <UserProfile userId={selectedUser.id} />}
+            </ScrollArea>
+          </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-    

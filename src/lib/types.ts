@@ -50,8 +50,6 @@ export type Trend = {
 };
 
 export type UserGrowthData = {
-  month: string;
+  date: string;
   users: number;
 };
-
-    

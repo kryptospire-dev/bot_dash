@@ -9,6 +9,9 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  Line,
+  LineChart,
+  CartesianGrid,
 } from 'recharts';
 import type { UserGrowthData } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,7 +27,7 @@ export function DashboardCharts({ userGrowthData, loading }: DashboardChartsProp
       <Card>
         <CardHeader>
           <CardTitle>User Growth</CardTitle>
-          <CardDescription>Monthly new user sign-ups.</CardDescription>
+          <CardDescription>Daily new user sign-ups.</CardDescription>
         </CardHeader>
         <CardContent className="pl-2">
           {loading ? (
@@ -33,9 +36,10 @@ export function DashboardCharts({ userGrowthData, loading }: DashboardChartsProp
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={userGrowthData}>
+              <LineChart data={userGrowthData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis
-                  dataKey="month"
+                  dataKey="date"
                   stroke="hsl(var(--muted-foreground))"
                   fontSize={12}
                   tickLine={false}
@@ -56,8 +60,8 @@ export function DashboardCharts({ userGrowthData, loading }: DashboardChartsProp
                       borderRadius: 'var(--radius)'
                   }}
                 />
-                <Bar dataKey="users" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <Line type="monotone" dataKey="users" stroke="hsl(var(--primary))" activeDot={{ r: 8 }} />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </CardContent>
