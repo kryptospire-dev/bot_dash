@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, CheckCircle, RefreshCw, LogOut, DollarSign, UserCheck, Loader2 } from 'lucide-react';
@@ -10,11 +10,10 @@ import { collection, getDocs, query, DocumentData } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import UsersTable from '@/components/users/users-table';
-import type { UserGrowthData } from '@/lib/types';
+import type { User, UserGrowthData } from '@/lib/types';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardCharts } from '@/components/dashboard-charts';
-import { useUserStore } from '@/store/user-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,40 +24,81 @@ export default function DashboardPage() {
     totalMntcPaid: 0,
     pendingReferralRewards: 0,
   });
-  const [loading, setLoading] = useState(true);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [displayedUsers, setDisplayedUsers] = useState<User[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showOnlyWithAddress, setShowOnlyWithAddress] = useState(false);
+  const [showOnlyPendingReferral, setShowOnlyPendingReferral] = useState(false);
+  const [showOnlyPendingStatus, setShowOnlyPendingStatus] = useState(false);
+  
+  const [sortBy, setSortBy] = useState('joinDate');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [userGrowthData, setUserGrowthData] = useState<UserGrowthData[]>([]);
 
   const router = useRouter();
 
-  const resetFilters = useUserStore(state => state.reset);
-  
   useEffect(() => {
     const isAuthenticated = sessionStorage.getItem('isAuthenticated');
     if (isAuthenticated !== 'true') {
       router.push('/login');
     } else {
-      fetchInitialData();
+      fetchAllData();
     }
   }, [router]);
 
   const handleLogout = () => {
     sessionStorage.removeItem('isAuthenticated');
-    resetFilters();
     router.push('/login');
   };
   
-  const fetchStats = useCallback(async () => {
+  const mapDocToUser = (doc: DocumentData): User => {
+    const userData = doc.data() as DocumentData;
+    const rewardInfo = userData.reward_info || {};
+    const referralStats = userData.referral_stats || {};
+
+    return {
+        id: doc.id,
+        name: userData.first_name || 'N/A',
+        username: userData.username || userData.user_id?.toString() || 'N/A',
+        joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
+        created_at: userData.created_at, 
+        lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
+        bep20_address: userData.bep20_address,
+        reward_info: {
+          mntc_earned: rewardInfo.mntc_earned || 0,
+          reward_status: rewardInfo.reward_status || 'not_completed',
+          reward_type: rewardInfo.reward_type || 'normal',
+          completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'Pp') : 'N/A',
+        },
+        referral_stats: {
+            total_referrals: referralStats.total_referrals || 0,
+            total_rewards: referralStats.total_rewards || 0,
+        },
+    };
+  };
+
+  const fetchAllData = useCallback(async () => {
+    if (initialLoading) {
+      setInitialLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+    
     try {
-      const usersQuery = query(collection(db, 'users'));
-      const usersQuerySnapshot = await getDocs(usersQuery);
+      const usersRef = collection(db, 'users');
+      const usersQuery = query(usersRef);
+      const querySnapshot = await getDocs(usersQuery);
+
       let totalUsers = 0;
       let deliveredUsersCount = 0;
       let totalMntcPaid = 0;
       let pendingReferralRewardsCount = 0;
       const dailyGrowth: { [key: string]: number } = {};
-
-      usersQuerySnapshot.forEach((doc) => {
+      
+      const fetchedUsers = querySnapshot.docs.map(doc => {
         totalUsers++;
         const userData = doc.data() as DocumentData;
         const rewardInfo = userData.reward_info || {};
@@ -80,14 +120,15 @@ export default function DashboardPage() {
         if (totalReferrals !== totalRewards) {
           pendingReferralRewardsCount++;
         }
+        
+        return mapDocToUser(doc);
       });
-      
+
       const growthData: UserGrowthData[] = Object.entries(dailyGrowth)
           .map(([date, users]) => ({ date, users }))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       setUserGrowthData(growthData);
-
       setStats({
         totalUsers,
         deliveredUsers: deliveredUsersCount,
@@ -95,27 +136,81 @@ export default function DashboardPage() {
         pendingReferralRewards: pendingReferralRewardsCount,
       });
 
-    } catch (error) {
-      console.error("Error fetching stats: ", error);
-    }
-  }, []);
+      setAllUsers(fetchedUsers);
 
-  const fetchInitialData = useCallback(async () => {
-    setLoading(true);
-    setInitialLoading(true);
-    try {
-      await fetchStats();
     } catch (error) {
-      console.error("Error fetching initial data: ", error);
+        console.error("Error fetching all users: ", error);
     } finally {
-      setLoading(false);
-      setInitialLoading(false);
+        setInitialLoading(false);
+        setIsRefreshing(false);
     }
-  }, [fetchStats]);
+  }, [initialLoading]);
 
+  useEffect(() => {
+    let filtered = [...allUsers];
+
+    if (searchTerm) {
+        const lowercasedTerm = searchTerm.toLowerCase();
+        filtered = filtered.filter(user => 
+            user.name.toLowerCase().includes(lowercasedTerm) ||
+            user.username.toLowerCase().includes(lowercasedTerm) ||
+            user.bep20_address?.toLowerCase().includes(lowercasedTerm)
+        );
+    }
+
+    if (showOnlyWithAddress) {
+        filtered = filtered.filter(user => !!user.bep20_address);
+    }
+    if (showOnlyPendingStatus) {
+        filtered = filtered.filter(user => user.reward_info?.reward_status === 'pending' && !!user.bep20_address);
+    }
+    if (showOnlyPendingReferral) {
+        filtered = filtered.filter(user => {
+            const totalReferrals = user.referral_stats?.total_referrals || 0;
+            const totalRewards = user.referral_stats?.total_rewards || 0;
+            return totalReferrals !== totalRewards;
+        });
+    }
+
+    const sortUsers = (users: User[]) => {
+      return [...users].sort((a, b) => {
+        let valA, valB;
+        
+        if (sortBy === 'joinDate') {
+          valA = a.created_at?.toMillis() || 0;
+          valB = b.created_at?.toMillis() || 0;
+        } else if (sortBy === 'name') {
+          valA = a.name || '';
+          valB = b.name || '';
+        } else if (sortBy === 'mntc_earned') {
+          valA = (a.reward_info?.mntc_earned || 0) + ((a.referral_stats?.total_rewards || 0) * 2);
+          valB = (b.reward_info?.mntc_earned || 0) + ((b.referral_stats?.total_rewards || 0) * 2);
+        } else {
+          return 0;
+        }
+
+        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+    };
+    
+    setDisplayedUsers(sortUsers(filtered));
+
+  }, [allUsers, searchTerm, showOnlyWithAddress, showOnlyPendingReferral, showOnlyPendingStatus, sortBy, sortDirection]);
+  
   const handleRefresh = useCallback(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    fetchAllData();
+  }, [fetchAllData]);
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortDirection('desc');
+    }
+  };
 
   const statCards = [
     { title: 'Total Users', value: stats.totalUsers, icon: Users },
@@ -131,7 +226,7 @@ export default function DashboardPage() {
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
           <h1 className="text-2xl font-semibold text-muted-foreground">Loading Dashboard...</h1>
         </div>
-        <p className="text-muted-foreground">Please wait while we fetch the latest data.</p>
+        <p className="text-muted-foreground">Fetching all user data. This may take a moment.</p>
       </div>
     );
   }
@@ -141,8 +236,8 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
         <div className="flex items-center space-x-2">
-            <Button onClick={handleRefresh} disabled={loading} variant="outline">
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            <Button onClick={handleRefresh} disabled={isRefreshing} variant="outline">
+              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             <Button variant="destructive" onClick={handleLogout}>
@@ -159,7 +254,7 @@ export default function DashboardPage() {
         </TabsList>
         <TabsContent value="dashboard" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {loading ? (
+                {isRefreshing ? (
                 Array.from({ length: 4 }).map((_, index) => (
                     <Card key={index}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -189,11 +284,24 @@ export default function DashboardPage() {
                 ))
                 )}
             </div>
-            <DashboardCharts userGrowthData={userGrowthData} loading={loading} />
+            <DashboardCharts userGrowthData={userGrowthData} loading={isRefreshing} />
         </TabsContent>
         <TabsContent value="users" className="space-y-4">
             <div className="animate-fadeIn" style={{animationDelay: '0.2s'}}>
-                <UsersTable />
+                <UsersTable
+                    users={displayedUsers}
+                    loading={isRefreshing}
+                    setSearchTerm={setSearchTerm}
+                    showOnlyWithAddress={showOnlyWithAddress}
+                    setShowOnlyWithAddress={setShowOnlyWithAddress}
+                    showOnlyPendingReferral={showOnlyPendingReferral}
+                    setShowOnlyPendingReferral={setShowOnlyPendingReferral}
+                    showOnlyPendingStatus={showOnlyPendingStatus}
+                    setShowOnlyPendingStatus={setShowOnlyPendingStatus}
+                    sortBy={sortBy}
+                    sortDirection={sortDirection}
+                    handleSort={handleSort}
+                />
             </div>
         </TabsContent>
       </Tabs>
