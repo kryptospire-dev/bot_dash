@@ -21,8 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${poppins.variable} dark`}>
-      <body className="antialiased font-sans bg-background min-h-screen flex flex-col">
-        {children}
+      <body className="antialiased font-sans bg-background">
+        <div className="flex min-h-screen w-full flex-col">
+           {children}
+        </div>
         <Toaster />
       </body>
     </html>

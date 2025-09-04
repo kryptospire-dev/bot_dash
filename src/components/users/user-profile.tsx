@@ -1,7 +1,7 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
+import { notFound, useRouter } from 'next/navigation';
 import type { User } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -26,72 +26,23 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-function UserProfileSkeleton() {
-  return (
-    <div className="container mx-auto max-w-4xl p-4 md:p-8">
-      <Card className="w-full border-none shadow-none">
-        <CardHeader className="text-center sm:text-left sm:flex-row sm:items-center sm:gap-4">
-          <div>
-            <Skeleton className="h-8 w-48 mb-2" />
-            <Skeleton className="h-4 w-32" />
-          </div>
-          <Skeleton className="h-8 w-24 sm:ml-auto" />
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex items-center justify-center">
-            <Skeleton className="h-10 w-40" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Skeleton className="h-5 w-full" />
-            <Skeleton className="h-5 w-full" />
-            <Skeleton className="h-5 w-full" />
-            <Skeleton className="h-5 w-full" />
-          </div>
-          <Separator />
-          <div className="space-y-4">
-            <Skeleton className="h-6 w-1/4 mb-4" />
-            <Skeleton className="h-5 w-3/4" />
-            <Skeleton className="h-5 w-3/4" />
-            <Skeleton className="h-5 w-3/4" />
-          </div>
-          <Separator />
-          <div className="space-y-2">
-            <Skeleton className="h-6 w-1/4 mb-4" />
-            <Skeleton className="h-5 w-full" />
-          </div>
-          <Separator />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-1/2 mb-2" />
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-5 w-full" />
-            </div>
-            <div className="space-y-3">
-              <Skeleton className="h-6 w-1/2 mb-2" />
-              <Skeleton className="h-5 w-full" />
-              <Skeleton className="h-5 w-full" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+interface UserProfileProps {
+    userId: string;
 }
 
-export default function UserProfile({ userId }: { userId: string }) {
+export default function UserProfile({ userId }: UserProfileProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [updatingReferral, setUpdatingReferral] = useState(false);
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     if (!userId) {
       setLoading(false);
       return;
     }
-    setLoading(true);
     const userDocRef = doc(db, 'users', userId);
 
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
@@ -197,12 +148,19 @@ export default function UserProfile({ userId }: { userId: string }) {
     }
   };
 
+
   if (loading) {
     return <UserProfileSkeleton />;
   }
 
   if (!user) {
-    return <div className="text-center p-8">User not found.</div>;
+    return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+            <XCircle className="w-16 h-16 text-destructive mb-4" />
+            <h3 className="text-xl font-bold">User Not Found</h3>
+            <p className="text-muted-foreground">The user with the specified ID could not be found.</p>
+        </div>
+    );
   }
 
   const getStatusVariant = (status?: User["reward_info"]['reward_status']) => {
@@ -222,8 +180,8 @@ export default function UserProfile({ userId }: { userId: string }) {
   const canSendReferralReward = totalReferrals > 0 && totalReferrals !== totalRewards;
 
   return (
-    <div className="animate-fadeIn">
-      <Card className="w-full border-none shadow-none">
+    <div className="animate-fadeIn p-1">
+      <Card className="w-full border-0 shadow-none">
         <CardHeader className="text-center sm:text-left sm:flex-row sm:items-center sm:gap-4">
           <div>
             <CardTitle className="text-2xl">{user.name}</CardTitle>
@@ -424,6 +382,60 @@ export default function UserProfile({ userId }: { userId: string }) {
             </>
           )}
 
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
+function UserProfileSkeleton() {
+  return (
+    <div className="p-4 md:p-8">
+      <Card className="w-full border-0 shadow-none">
+        <CardHeader className="text-center sm:text-left sm:flex-row sm:items-center sm:gap-4">
+          <div>
+            <Skeleton className="h-8 w-48 mb-2" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="h-8 w-24 sm:ml-auto" />
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-center">
+            <Skeleton className="h-10 w-40" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-full" />
+          </div>
+          <Separator />
+          <div className="space-y-4">
+            <Skeleton className="h-6 w-1/4 mb-4" />
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-5 w-3/4" />
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-1/4 mb-4" />
+            <Skeleton className="h-5 w-full" />
+          </div>
+          <Separator />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <Skeleton className="h-6 w-1/2 mb-2" />
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-5 w-full" />
+            </div>
+            <div className="space-y-3">
+              <Skeleton className="h-6 w-1/2 mb-2" />
+              <Skeleton className="h-5 w-full" />
+              <Skeleton className="h-5 w-full" />
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

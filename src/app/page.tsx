@@ -1,10 +1,10 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, CheckCircle, RefreshCw, LogOut, DollarSign, UserCheck, Loader2 } from 'lucide-react';
+import { Users, CheckCircle, RefreshCw, LogOut, DollarSign, UserCheck } from 'lucide-react';
 import { db } from '@/lib/firebase-client';
 import { collection, getDocs, query, DocumentData } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -15,8 +15,6 @@ import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardCharts } from '@/components/dashboard-charts';
 
-export const dynamic = 'force-dynamic';
-
 export default function DashboardPage() {
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -24,18 +22,9 @@ export default function DashboardPage() {
     totalMntcPaid: 0,
     pendingReferralRewards: 0,
   });
-  const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [displayedUsers, setDisplayedUsers] = useState<User[]>([]);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  const [searchTerm, setSearchTerm] = useState("");
-  const [showOnlyWithAddress, setShowOnlyWithAddress] = useState(false);
-  const [showOnlyPendingReferral, setShowOnlyPendingReferral] = useState(false);
-  const [showOnlyPendingStatus, setShowOnlyPendingStatus] = useState(false);
-  
-  const [sortBy, setSortBy] = useState('joinDate');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [userGrowthData, setUserGrowthData] = useState<UserGrowthData[]>([]);
 
   const router = useRouter();
@@ -45,7 +34,7 @@ export default function DashboardPage() {
     if (isAuthenticated !== 'true') {
       router.push('/login');
     } else {
-      fetchAllData();
+      fetchInitialData();
     }
   }, [router]);
 
@@ -53,7 +42,7 @@ export default function DashboardPage() {
     sessionStorage.removeItem('isAuthenticated');
     router.push('/login');
   };
-  
+
   const mapDocToUser = (doc: DocumentData): User => {
     const userData = doc.data() as DocumentData;
     const rewardInfo = userData.reward_info || {};
@@ -64,7 +53,7 @@ export default function DashboardPage() {
         name: userData.first_name || 'N/A',
         username: userData.username || userData.user_id?.toString() || 'N/A',
         joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
-        created_at: userData.created_at, 
+        created_at: userData.created_at, // Keep the timestamp for sorting
         lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
         bep20_address: userData.bep20_address,
         reward_info: {
@@ -80,25 +69,33 @@ export default function DashboardPage() {
     };
   };
 
-  const fetchAllData = useCallback(async () => {
-    if (initialLoading) {
-      setInitialLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
     try {
-      const usersRef = collection(db, 'users');
-      const usersQuery = query(usersRef);
-      const querySnapshot = await getDocs(usersQuery);
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef);
+        const querySnapshot = await getDocs(q);
+        const newUsers = querySnapshot.docs.map(mapDocToUser);
+        setUsers(newUsers);
 
+    } catch (error) {
+        console.error("Error fetching users: ", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const usersQuery = query(collection(db, 'users'));
+      const usersQuerySnapshot = await getDocs(usersQuery);
       let totalUsers = 0;
       let deliveredUsersCount = 0;
       let totalMntcPaid = 0;
       let pendingReferralRewardsCount = 0;
       const dailyGrowth: { [key: string]: number } = {};
-      
-      const fetchedUsers = querySnapshot.docs.map(doc => {
+
+      usersQuerySnapshot.forEach((doc) => {
         totalUsers++;
         const userData = doc.data() as DocumentData;
         const rewardInfo = userData.reward_info || {};
@@ -120,15 +117,14 @@ export default function DashboardPage() {
         if (totalReferrals !== totalRewards) {
           pendingReferralRewardsCount++;
         }
-        
-        return mapDocToUser(doc);
       });
-
+      
       const growthData: UserGrowthData[] = Object.entries(dailyGrowth)
           .map(([date, users]) => ({ date, users }))
           .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       setUserGrowthData(growthData);
+
       setStats({
         totalUsers,
         deliveredUsers: deliveredUsersCount,
@@ -136,81 +132,29 @@ export default function DashboardPage() {
         pendingReferralRewards: pendingReferralRewardsCount,
       });
 
-      setAllUsers(fetchedUsers);
-
     } catch (error) {
-        console.error("Error fetching all users: ", error);
-    } finally {
-        setInitialLoading(false);
-        setIsRefreshing(false);
+      console.error("Error fetching stats: ", error);
     }
-  }, [initialLoading]);
+  }, []);
+
+  const fetchInitialData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([fetchStats(), fetchUsers()]);
+    } catch (error) {
+      console.error("Error fetching initial data: ", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchStats, fetchUsers]);
+
+  const handleRefresh = useCallback(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
 
   useEffect(() => {
-    let filtered = [...allUsers];
-
-    if (searchTerm) {
-        const lowercasedTerm = searchTerm.toLowerCase();
-        filtered = filtered.filter(user => 
-            user.name.toLowerCase().includes(lowercasedTerm) ||
-            user.username.toLowerCase().includes(lowercasedTerm) ||
-            user.bep20_address?.toLowerCase().includes(lowercasedTerm)
-        );
-    }
-
-    if (showOnlyWithAddress) {
-        filtered = filtered.filter(user => !!user.bep20_address);
-    }
-    if (showOnlyPendingStatus) {
-        filtered = filtered.filter(user => user.reward_info?.reward_status === 'pending' && !!user.bep20_address);
-    }
-    if (showOnlyPendingReferral) {
-        filtered = filtered.filter(user => {
-            const totalReferrals = user.referral_stats?.total_referrals || 0;
-            const totalRewards = user.referral_stats?.total_rewards || 0;
-            return totalReferrals !== totalRewards;
-        });
-    }
-
-    const sortUsers = (users: User[]) => {
-      return [...users].sort((a, b) => {
-        let valA, valB;
-        
-        if (sortBy === 'joinDate') {
-          valA = a.created_at?.toMillis() || 0;
-          valB = b.created_at?.toMillis() || 0;
-        } else if (sortBy === 'name') {
-          valA = a.name || '';
-          valB = b.name || '';
-        } else if (sortBy === 'mntc_earned') {
-          valA = (a.reward_info?.mntc_earned || 0) + ((a.referral_stats?.total_rewards || 0) * 2);
-          valB = (b.reward_info?.mntc_earned || 0) + ((b.referral_stats?.total_rewards || 0) * 2);
-        } else {
-          return 0;
-        }
-
-        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-        if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-        return 0;
-      });
-    };
-    
-    setDisplayedUsers(sortUsers(filtered));
-
-  }, [allUsers, searchTerm, showOnlyWithAddress, showOnlyPendingReferral, showOnlyPendingStatus, sortBy, sortDirection]);
-  
-  const handleRefresh = useCallback(() => {
-    fetchAllData();
-  }, [fetchAllData]);
-
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortDirection('desc');
-    }
-  };
+    fetchInitialData();
+  }, [fetchInitialData]);
 
   const statCards = [
     { title: 'Total Users', value: stats.totalUsers, icon: Users },
@@ -219,25 +163,13 @@ export default function DashboardPage() {
     { title: 'Total MNTC Paid', value: stats.totalMntcPaid.toLocaleString(), icon: DollarSign },
   ];
 
-  if (initialLoading) {
-    return (
-      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-background">
-        <div className="flex items-center gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <h1 className="text-2xl font-semibold text-muted-foreground">Loading Dashboard...</h1>
-        </div>
-        <p className="text-muted-foreground">Fetching all user data. This may take a moment.</p>
-      </div>
-    );
-  }
-
   return (
-    <main className="flex-1 space-y-4 p-4 sm:p-6 md:p-8 animate-fadeIn">
+    <div className="flex-1 space-y-4 p-4 sm:p-6 md:p-8 animate-fadeIn">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
         <div className="flex items-center space-x-2">
-            <Button onClick={handleRefresh} disabled={isRefreshing} variant="outline">
-              <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <Button onClick={handleRefresh} disabled={loading} variant="outline">
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             <Button variant="destructive" onClick={handleLogout}>
@@ -254,7 +186,7 @@ export default function DashboardPage() {
         </TabsList>
         <TabsContent value="dashboard" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {isRefreshing ? (
+                {loading ? (
                 Array.from({ length: 4 }).map((_, index) => (
                     <Card key={index}>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -284,27 +216,17 @@ export default function DashboardPage() {
                 ))
                 )}
             </div>
-            <DashboardCharts userGrowthData={userGrowthData} loading={isRefreshing} />
+            <DashboardCharts userGrowthData={userGrowthData} loading={loading} />
         </TabsContent>
         <TabsContent value="users" className="space-y-4">
             <div className="animate-fadeIn" style={{animationDelay: '0.2s'}}>
                 <UsersTable
-                    users={displayedUsers}
-                    loading={isRefreshing}
-                    setSearchTerm={setSearchTerm}
-                    showOnlyWithAddress={showOnlyWithAddress}
-                    setShowOnlyWithAddress={setShowOnlyWithAddress}
-                    showOnlyPendingReferral={showOnlyPendingReferral}
-                    setShowOnlyPendingReferral={setShowOnlyPendingReferral}
-                    showOnlyPendingStatus={showOnlyPendingStatus}
-                    setShowOnlyPendingStatus={setShowOnlyPendingStatus}
-                    sortBy={sortBy}
-                    sortDirection={sortDirection}
-                    handleSort={handleSort}
+                    users={users}
+                    loading={loading}
                 />
             </div>
         </TabsContent>
       </Tabs>
-    </main>
+    </div>
   );
 }
