@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from 'next/navigation';
 import { Input } from "@/components/ui/input";
 import {
@@ -14,62 +14,78 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import type { User } from "@/lib/types";
-import { Search, UserX } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Search, UserX, Loader2, Filter, ArrowUp, ArrowDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+  DialogClose
+} from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 
-type TableFilter = 'all' | 'pending_referral';
 
 interface UsersTableProps {
     users: User[];
-    initialFilter: TableFilter;
+    fetchUsers: () => void;
+    hasMore: boolean;
+    loading: boolean;
+    loadingMore: boolean;
+    searchTerm: string;
+    setSearchTerm: (term: string) => void;
+    showOnlyWithAddress: boolean;
+    setShowOnlyWithAddress: (value: boolean) => void;
+    showOnlyPendingReferral: boolean;
+    setShowOnlyPendingReferral: (value: boolean) => void;
+    showOnlyPendingStatus: boolean;
+    setShowOnlyPendingStatus: (value: boolean) => void;
+    sortBy: string;
+    sortDirection: 'asc' | 'desc';
+    handleSort: (column: string) => void;
 }
 
-export default function UsersTable({ users, initialFilter }: UsersTableProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [showOnlyWithAddress, setShowOnlyWithAddress] = useState(false);
-  const [showOnlyPendingReferral, setShowOnlyPendingReferral] = useState(false);
-  const [currentFilter, setCurrentFilter] = useState<TableFilter>(initialFilter);
+export default function UsersTable({ 
+    users, 
+    fetchUsers, 
+    hasMore, 
+    loading,
+    loadingMore,
+    searchTerm,
+    setSearchTerm,
+    showOnlyWithAddress,
+    setShowOnlyWithAddress,
+    showOnlyPendingReferral,
+    setShowOnlyPendingReferral,
+    showOnlyPendingStatus,
+    setShowOnlyPendingStatus,
+    sortBy,
+    sortDirection,
+    handleSort,
+}: UsersTableProps) {
   const router = useRouter();
+  const observer = useRef<IntersectionObserver>();
+  
+  const [dialogAddressFilter, setDialogAddressFilter] = useState(showOnlyWithAddress);
+  const [dialogReferralFilter, setDialogReferralFilter] = useState(showOnlyPendingReferral);
+  const [dialogPendingStatusFilter, setDialogPendingStatusFilter] = useState(showOnlyPendingStatus);
 
-  useEffect(() => {
-    setCurrentFilter(initialFilter);
-    if (initialFilter === 'pending_referral') {
-      setShowOnlyPendingReferral(true);
-    } else {
-      setShowOnlyPendingReferral(false);
-    }
-  }, [initialFilter]);
-
-  const filteredUsers = useMemo(() => {
-    let filtered = users;
-    
-    if (showOnlyPendingReferral) {
-        filtered = filtered.filter(user => {
-            const totalReferrals = user.referral_stats?.total_referrals || 0;
-            const totalRewards = user.referral_stats?.total_rewards || 0;
-            return totalReferrals !== totalRewards;
-        });
-    }
-
-    if (showOnlyWithAddress) {
-        filtered = filtered.filter((user) => !!user.bep20_address);
-    }
-    
-    if (searchTerm) {
-        const lowercasedTerm = searchTerm.toLowerCase();
-        filtered = filtered.filter(
-          (user) =>
-            user.name.toLowerCase().includes(lowercasedTerm) ||
-            user.id.toLowerCase().includes(lowercasedTerm) ||
-            user.username.toLowerCase().includes(lowercasedTerm) ||
-            user.bep20_address?.toLowerCase().includes(lowercasedTerm)
-        );
-    }
-    return filtered;
-
-  }, [searchTerm, users, showOnlyWithAddress, showOnlyPendingReferral]);
+  const lastUserElementRef = useCallback((node: HTMLTableRowElement) => {
+    if (loadingMore) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        fetchUsers();
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [loadingMore, hasMore, fetchUsers]);
 
   const getStatusVariant = (status?: User["reward_info"]['reward_status']) => {
     switch (status) {
@@ -82,13 +98,36 @@ export default function UsersTable({ users, initialFilter }: UsersTableProps) {
     }
   };
 
+  const handleApplyFilters = () => {
+    setShowOnlyWithAddress(dialogAddressFilter);
+    setShowOnlyPendingReferral(dialogReferralFilter);
+    setShowOnlyPendingStatus(dialogPendingStatusFilter);
+  };
+  
   const clearFilters = () => {
     setSearchTerm('');
     setShowOnlyWithAddress(false);
     setShowOnlyPendingReferral(false);
-    setCurrentFilter('all');
+    setShowOnlyPendingStatus(false);
+    setDialogAddressFilter(false);
+    setDialogReferralFilter(false);
+    setDialogPendingStatusFilter(false);
   }
 
+  const areFiltersActive = showOnlyWithAddress || showOnlyPendingReferral || showOnlyPendingStatus;
+
+  const SortableHeader = ({ column, label }: { column: string; label: string }) => {
+    const isSorted = sortBy === column;
+    return (
+        <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort(column)}>
+            <div className="flex items-center gap-2">
+                {label}
+                {isSorted && (sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />)}
+            </div>
+        </TableHead>
+    );
+  };
+  
   return (
     <div className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -102,37 +141,111 @@ export default function UsersTable({ users, initialFilter }: UsersTableProps) {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 />
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex items-center space-x-2">
-                  <Checkbox id="bep20-filter" checked={showOnlyWithAddress} onCheckedChange={(checked) => setShowOnlyWithAddress(!!checked)} />
-                  <Label htmlFor="bep20-filter" className="text-sm font-medium leading-none cursor-pointer">
-                      Show only users with BEP20 address
-                  </Label>
-              </div>
-               <div className="flex items-center space-x-2">
-                  <Checkbox id="referral-filter" checked={showOnlyPendingReferral} onCheckedChange={(checked) => setShowOnlyPendingReferral(!!checked)} />
-                  <Label htmlFor="referral-filter" className="text-sm font-medium leading-none cursor-pointer">
-                      Show only pending referral rewards
-                  </Label>
-              </div>
-            </div>
+            
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                    <Filter className="mr-2 h-4 w-4" />
+                    Filters
+                    {areFiltersActive && <span className="ml-2 h-2 w-2 rounded-full bg-primary" />}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Filter Users</DialogTitle>
+                  <DialogDescription>
+                    Apply filters to refine the user list.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="flex items-center space-x-4 rounded-md border p-4">
+                     <div className="flex-1 space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                            Show only users with BEP20 address
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                            Filter for users who have submitted their wallet address.
+                        </p>
+                     </div>
+                     <Switch
+                        checked={dialogAddressFilter}
+                        onCheckedChange={setDialogAddressFilter}
+                     />
+                  </div>
+                   <div className="flex items-center space-x-4 rounded-md border p-4">
+                     <div className="flex-1 space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                            Show only pending referral rewards
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                            Filter for users whose referral rewards haven't been sent.
+                        </p>
+                     </div>
+                      <Switch
+                        checked={dialogReferralFilter}
+                        onCheckedChange={setDialogReferralFilter}
+                     />
+                  </div>
+                  <div className="flex items-center space-x-4 rounded-md border p-4">
+                     <div className="flex-1 space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                            Show only users with pending status
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                            Filter for users whose reward status is 'pending' and have a wallet address.
+                        </p>
+                     </div>
+                      <Switch
+                        checked={dialogPendingStatusFilter}
+                        onCheckedChange={setDialogPendingStatusFilter}
+                     />
+                  </div>
+                </div>
+                <DialogFooter>
+                    <Button type="button" variant="ghost" onClick={clearFilters}>Clear Filters</Button>
+                    <DialogClose asChild>
+                        <Button type="button" variant="secondary">Close</Button>
+                    </DialogClose>
+                    <DialogClose asChild>
+                        <Button type="button" onClick={handleApplyFilters}>Apply Filters</Button>
+                    </DialogClose>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
       </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
+              <SortableHeader column="name" label="Name" />
               <TableHead>BEP20 Address</TableHead>
               <TableHead className="text-center">Reward Status</TableHead>
-              <TableHead className="text-center">MNTC Earned</TableHead>
+              <SortableHeader column="mntc_earned" label="MNTC Earned" />
               <TableHead className="text-center">Reward Type</TableHead>
-              <TableHead className="text-center">Join Date</TableHead>
+              <SortableHeader column="joinDate" label="Join Date" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUsers.length > 0 ? (
-              filteredUsers.map((user) => (
-                <TableRow key={user.id} onClick={() => router.push(`/users/${user.id}`)} className="cursor-pointer">
+            {loading ? (
+                 Array.from({ length: 10 }).map((_, i) => (
+                    <TableRow key={i}>
+                        <TableCell><Skeleton className="h-5 w-3/4" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-full" /></TableCell>
+                        <TableCell className="text-center"><Skeleton className="h-6 w-20 mx-auto" /></TableCell>
+                        <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>
+                        <TableCell className="text-center"><Skeleton className="h-6 w-24 mx-auto" /></TableCell>
+                        <TableCell className="text-center"><Skeleton className="h-5 w-28 mx-auto" /></TableCell>
+                    </TableRow>
+                ))
+            ) : users.length > 0 ? (
+              users.map((user, index) => (
+                <TableRow 
+                  ref={index === users.length - 1 ? lastUserElementRef : null}
+                  key={user.id} 
+                  onClick={() => router.push(`/users/${user.id}`)} 
+                  className="cursor-pointer"
+                >
                   <TableCell>
                     <div className="flex items-center gap-3">
                         <div>
@@ -158,15 +271,35 @@ export default function UsersTable({ users, initialFilter }: UsersTableProps) {
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
-                  <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                    <UserX className="h-8 w-8" />
-                    <p className="font-medium">No users found.</p>
-                    <p className="text-sm">Try adjusting your search or filters. <button onClick={clearFilters} className="text-primary underline">Clear all filters</button>.</p>
-                  </div>
-                </TableCell>
-              </TableRow>
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                      <UserX className="h-8 w-8" />
+                      <p className="font-medium">No users found.</p>
+                      {areFiltersActive || searchTerm ? (
+                        <p className="text-sm">Try adjusting your search or filters. <button onClick={clearFilters} className="text-primary underline">Clear all filters</button>.</p>
+                      ) : (
+                        <p className="text-sm">There are no users to display.</p>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+            )}
+            {loadingMore && (
+                <TableRow>
+                    <TableCell colSpan={6} className="text-center">
+                        <div className="flex justify-center items-center py-4">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                    </TableCell>
+                </TableRow>
+            )}
+            {!hasMore && users.length > 0 && (
+                <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-4">
+                        You've reached the end of the list.
+                    </TableCell>
+                </TableRow>
             )}
           </TableBody>
         </Table>
@@ -174,3 +307,5 @@ export default function UsersTable({ users, initialFilter }: UsersTableProps) {
     </div>
   );
 }
+
+    

@@ -5,6 +5,7 @@ export type User = {
   username: string;
   user_id?: number;
   joinDate: string; // created_at
+  created_at?: any; // For sorting
   lastSeen: string; // updated_at
   currentStep?: number;
   socialUsernames?: {
@@ -52,3 +53,5 @@ export type UserGrowthData = {
   month: string;
   users: number;
 };
+
+    

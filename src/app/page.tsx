@@ -1,19 +1,19 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, CheckCircle, RefreshCw, LogOut, DollarSign, UserCheck } from 'lucide-react';
 import { db } from '@/lib/firebase-client';
-import { collection, getDocs, query, DocumentData } from 'firebase/firestore';
+import { collection, getDocs, query, DocumentData, where, limit, startAfter, orderBy, Query, QueryConstraint } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import UsersTable from '@/components/users/users-table';
 import type { User } from '@/lib/types';
 import { format } from 'date-fns';
 
-type TableFilter = 'all' | 'pending_referral';
+const PAGE_SIZE = 20;
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -24,7 +24,19 @@ export default function DashboardPage() {
   });
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tableFilter, setTableFilter] = useState<TableFilter>('all');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [lastVisible, setLastVisible] = useState<DocumentData | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [showOnlyWithAddress, setShowOnlyWithAddress] = useState(false);
+  const [showOnlyPendingReferral, setShowOnlyPendingReferral] = useState(false);
+  const [showOnlyPendingStatus, setShowOnlyPendingStatus] = useState(false);
+  
+  const [sortBy, setSortBy] = useState('joinDate');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
   const router = useRouter();
 
   useEffect(() => {
@@ -38,90 +50,208 @@ export default function DashboardPage() {
     sessionStorage.removeItem('isAuthenticated');
     router.push('/login');
   };
+  
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
 
-  const fetchData = useCallback(async (isRefresh: boolean = false) => {
-    if (!isRefresh) {
-      setLoading(true);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchTerm]);
+
+  const mapDocToUser = (doc: DocumentData): User => {
+    const userData = doc.data() as DocumentData;
+    const rewardInfo = userData.reward_info || {};
+    const referralStats = userData.referral_stats || {};
+
+    return {
+        id: doc.id,
+        name: userData.first_name || 'N/A',
+        username: userData.username || userData.user_id?.toString() || 'N/A',
+        joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
+        created_at: userData.created_at, // Keep the timestamp for sorting
+        lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
+        bep20_address: userData.bep20_address,
+        reward_info: {
+          mntc_earned: rewardInfo.mntc_earned || 0,
+          reward_status: rewardInfo.reward_status || 'not_completed',
+          reward_type: rewardInfo.reward_type || 'normal',
+          completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'Pp') : 'N/A',
+        },
+        referral_stats: {
+            total_referrals: referralStats.total_referrals || 0,
+            total_rewards: referralStats.total_rewards || 0,
+        },
+    };
+  };
+
+  const fetchUsers = useCallback(async (isNewQuery = false) => {
+    if (loadingMore) return;
+
+    if (isNewQuery) {
+        setLoading(true);
+        setUsers([]);
+        setLastVisible(null);
+        setHasMore(true);
+    } else {
+        setLoadingMore(true);
     }
 
     try {
+        const usersRef = collection(db, 'users');
+        let sortField:string = 'created_at';
+        if (sortBy === 'name') sortField = 'first_name';
+        if (sortBy === 'mntc_earned') sortField = 'reward_info.mntc_earned';
+        
+        const queryConstraints: QueryConstraint[] = [];
+
+        if (showOnlyWithAddress) {
+            queryConstraints.push(where("bep20_address", ">", ""));
+        }
+
+        if (showOnlyPendingStatus) {
+            queryConstraints.push(where("reward_info.reward_status", "==", "pending"));
+            queryConstraints.push(where("bep20_address", ">", ""));
+        }
+        
+        queryConstraints.push(orderBy(sortField, sortDirection));
+
+        if (!isNewQuery && lastVisible) {
+            queryConstraints.push(startAfter(lastVisible));
+        }
+        
+        queryConstraints.push(limit(PAGE_SIZE));
+
+        const q = query(usersRef, ...queryConstraints);
+        const documentSnapshots = await getDocs(q);
+
+        let newUsers = documentSnapshots.docs.map(mapDocToUser);
+        const lastVis = documentSnapshots.docs[documentSnapshots.docs.length - 1];
+        
+        setLastVisible(lastVis);
+        setHasMore(documentSnapshots.docs.length === PAGE_SIZE);
+        
+        if (isNewQuery) {
+            setUsers(newUsers);
+        } else {
+            setUsers(prevUsers => [...prevUsers, ...newUsers]);
+        }
+
+    } catch (error) {
+        console.error("Error fetching users: ", error);
+    } finally {
+        if(isNewQuery) {
+          setLoading(false);
+        } else {
+          setLoadingMore(false);
+        }
+    }
+  }, [loadingMore, lastVisible, showOnlyWithAddress, showOnlyPendingStatus, sortBy, sortDirection]);
+
+  const fetchStats = useCallback(async () => {
+    try {
       const usersQuery = query(collection(db, 'users'));
       const usersQuerySnapshot = await getDocs(usersQuery);
-      const totalUsers = usersQuerySnapshot.size;
-      
-      const usersData: User[] = [];
+      let totalUsers = 0;
       let deliveredUsersCount = 0;
       let totalMntcPaid = 0;
       let pendingReferralRewardsCount = 0;
       
       usersQuerySnapshot.forEach((doc) => {
+        totalUsers++;
         const userData = doc.data() as DocumentData;
         const rewardInfo = userData.reward_info || {};
         const referralStats = userData.referral_stats || {};
 
         if (rewardInfo.reward_status === 'paid') {
           deliveredUsersCount++;
-          totalMntcPaid += rewardInfo.mntc_earned || 0;
+          totalMntcPaid += (rewardInfo.mntc_earned || 0) + ((referralStats.total_rewards || 0) * 2);
         }
-
-        totalMntcPaid += (referralStats.total_rewards)*2 || 0;
 
         const totalReferrals = referralStats.total_referrals || 0;
         const totalRewards = referralStats.total_rewards || 0;
         if (totalReferrals !== totalRewards) {
           pendingReferralRewardsCount++;
         }
-
-        usersData.push({
-            id: doc.id,
-            name: userData.first_name || 'N/A',
-            username: userData.username || userData.user_id?.toString() || 'N/A',
-            joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
-            lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
-            bep20_address: userData.bep20_address,
-            reward_info: {
-              mntc_earned: rewardInfo.mntc_earned || 0,
-              reward_status: rewardInfo.reward_status || 'not_completed',
-              reward_type: rewardInfo.reward_type || 'normal',
-              completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'Pp') : 'N/A',
-            },
-            referral_stats: {
-                total_referrals: totalReferrals,
-                total_rewards: totalRewards,
-            },
-        });
       });
       
-      setUsers(usersData);
       setStats({
-        totalUsers: totalUsers,
+        totalUsers,
         deliveredUsers: deliveredUsersCount,
         totalMntcPaid: totalMntcPaid,
         pendingReferralRewards: pendingReferralRewardsCount,
       });
 
     } catch (error) {
-      console.error("Error fetching data: ", error);
-    } finally {
-      if (!isRefresh) {
-        setLoading(false);
-      }
+      console.error("Error fetching stats: ", error);
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const fetchInitialData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([fetchStats(), fetchUsers(true)]);
+    } catch (error) {
+      console.error("Error fetching initial data: ", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchStats, fetchUsers]);
 
-  const handleRefresh = () => {
-    fetchData(true);
-  }
+  const handleRefresh = useCallback(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    fetchInitialData();
+  }, []);
+
+  useEffect(() => {
+    fetchUsers(true);
+  }, [showOnlyWithAddress, showOnlyPendingReferral, showOnlyPendingStatus, sortBy, sortDirection, debouncedSearchTerm]);
+  
+  const filteredUsers = useMemo(() => {
+    let filtered = users;
+
+    if (showOnlyPendingReferral) {
+        filtered = filtered.filter(user => {
+            const totalReferrals = user.referral_stats?.total_referrals || 0;
+            const totalRewards = user.referral_stats?.total_rewards || 0;
+            return totalReferrals !== totalRewards;
+        });
+    }
+
+    if (debouncedSearchTerm) {
+        const lowercasedTerm = debouncedSearchTerm.toLowerCase();
+        filtered = filtered.filter(
+          (user) =>
+            user.name.toLowerCase().includes(lowercasedTerm) ||
+            user.id.toLowerCase().includes(lowercasedTerm) ||
+            user.username.toLowerCase().includes(lowercasedTerm) ||
+            user.bep20_address?.toLowerCase().includes(lowercasedTerm)
+        );
+    }
+    return filtered;
+
+  }, [debouncedSearchTerm, users, showOnlyPendingReferral]);
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortDirection('desc');
+    }
+  };
+
 
   const statCards = [
-    { title: 'Total Users', value: stats.totalUsers, icon: Users, filter: 'all' as TableFilter },
-    { title: 'Delivered Users', value: stats.deliveredUsers, icon: CheckCircle, filter: 'all' as TableFilter },
-    { title: 'Pending Referral Rewards', value: stats.pendingReferralRewards, icon: UserCheck, filter: 'pending_referral' as TableFilter },
-    { title: 'Total MNTC Paid', value: stats.totalMntcPaid.toLocaleString(), icon: DollarSign, filter: 'all' as TableFilter },
+    { title: 'Total Users', value: stats.totalUsers, icon: Users },
+    { title: 'Delivered Users', value: stats.deliveredUsers, icon: CheckCircle },
+    { title: 'Pending Referral Rewards', value: stats.pendingReferralRewards, icon: UserCheck },
+    { title: 'Total MNTC Paid', value: stats.totalMntcPaid.toLocaleString(), icon: DollarSign },
   ];
 
   return (
@@ -158,7 +288,6 @@ export default function DashboardPage() {
                 key={card.title} 
                 className="animate-slideUp" 
                 style={{animationDelay: `${index * 0.1}s`}}
-                onClick={() => setTableFilter(card.filter)}
             >
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
@@ -173,26 +302,29 @@ export default function DashboardPage() {
       </div>
       <div className="space-y-4">
         <h3 className="text-2xl font-bold tracking-tight">Users</h3>
-         {loading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-10 w-full max-w-sm" />
-              <div className="rounded-md border">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4 p-4 border-b">
-                      <div className="space-y-2 flex-1">
-                        <Skeleton className="h-4 w-3/4" />
-                        <Skeleton className="h-4 w-1/2" />
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          ) : (
-            <div className="animate-fadeIn" style={{animationDelay: '0.2s'}}>
-                <UsersTable users={users} initialFilter={tableFilter} />
-            </div>
-          )}
+        <div className="animate-fadeIn" style={{animationDelay: '0.2s'}}>
+            <UsersTable
+                users={filteredUsers}
+                fetchUsers={() => fetchUsers(false)}
+                hasMore={hasMore}
+                loading={loading}
+                loadingMore={loadingMore}
+                setSearchTerm={setSearchTerm}
+                searchTerm={searchTerm}
+                showOnlyWithAddress={showOnlyWithAddress}
+                setShowOnlyWithAddress={setShowOnlyWithAddress}
+                showOnlyPendingReferral={showOnlyPendingReferral}
+                setShowOnlyPendingReferral={setShowOnlyPendingReferral}
+                showOnlyPendingStatus={showOnlyPendingStatus}
+                setShowOnlyPendingStatus={setShowOnlyPendingStatus}
+                sortBy={sortBy}
+                sortDirection={sortDirection}
+                handleSort={handleSort}
+            />
+        </div>
       </div>
     </div>
   );
 }
+
+    
