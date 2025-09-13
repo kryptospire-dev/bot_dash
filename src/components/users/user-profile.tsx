@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -56,8 +57,8 @@ export default function UserProfile({ userId }: UserProfileProps) {
           name: userData.first_name || 'N/A',
           username: userData.username || 'N/A',
           user_id: userData.user_id,
-          joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
-          lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
+          joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
+          lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
           currentStep: userData.current_step || 0,
           socialUsernames: userData.social_usernames || {},
           bep20_address: userData.bep20_address,
@@ -74,7 +75,7 @@ export default function UserProfile({ userId }: UserProfileProps) {
           reward_info: {
             mntc_earned: rewardInfo.mntc_earned || 0,
             reward_type: rewardInfo.reward_type || 'normal',
-            completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'Pp') : 'N/A',
+            completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
             reward_status: rewardInfo.reward_status || 'not_completed',
           },
         });

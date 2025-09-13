@@ -14,6 +14,7 @@ import type { User, UserGrowthData } from '@/lib/types';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardCharts } from '@/components/dashboard-charts';
+import DuplicateUsersDialog from '@/components/users/duplicate-users-dialog';
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({
@@ -52,15 +53,15 @@ export default function DashboardPage() {
         id: doc.id,
         name: userData.first_name || 'N/A',
         username: userData.username || userData.user_id?.toString() || 'N/A',
-        joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'Pp') : 'N/A',
+        joinDate: userData.created_at?.toDate ? format(userData.created_at.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
         created_at: userData.created_at, // Keep the timestamp for sorting
-        lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'Pp') : 'N/A',
+        lastSeen: userData.updated_at?.toDate ? format(userData.updated_at.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
         bep20_address: userData.bep20_address,
         reward_info: {
           mntc_earned: rewardInfo.mntc_earned || 0,
           reward_status: rewardInfo.reward_status || 'not_completed',
           reward_type: rewardInfo.reward_type || 'normal',
-          completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'Pp') : 'N/A',
+          completion_date: rewardInfo.completion_date?.toDate ? format(rewardInfo.completion_date.toDate(), 'MMM d, yyyy, h:mm a') : 'N/A',
         },
         referral_stats: {
             total_referrals: referralStats.total_referrals || 0,
@@ -172,6 +173,7 @@ export default function DashboardPage() {
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
+             <DuplicateUsersDialog onDuplicatesDeleted={handleRefresh} />
             <Button variant="destructive" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Logout
